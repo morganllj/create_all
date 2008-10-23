@@ -30,6 +30,8 @@ my $default_zimbra_svr = "dmail01.domain.org";
 # zimbra admin password
 my $default_zimbra_pass  = "pass";
 
+my $default_alias_name = "all-34Thg90";
+
 # default domain, used every time a user is created and in some cases
 # modified.  Can be overridden on the command line.
 my $default_domain       = "dev.domain.org";
@@ -63,7 +65,7 @@ my $max_recurse = 5;
 ################
 # Zimbra LDAP
 my $z_ldap_host = "dmldap01.domain.org";
-my $z_ldap_base = "dc=dev,dc=domain,dc=org";
+my $z_ldap_base = "dc=domain,dc=org";
 my $z_ldap_binddn = "cn=config";
 my $z_ldap_pass = "pass";
 
@@ -144,7 +146,7 @@ if ($r->name eq "Fault") {
 
 # search out the zimbraId
 
-my $fil = "(&(objectclass=zimbraDistributionList)(uid=all-test))";
+my $fil = "(&(objectclass=zimbraDistributionList)(uid=$default_alias_name))";
 print "searching ldap for dist list with $fil\n";
 
 my $sr = $ldap->search(base=>$z_ldap_base, filter=>$fil);
@@ -162,7 +164,7 @@ for my $l_dist ($sr->entries) {
 if (defined $d_z_id) {
     # list exists, delete it
 
-    print "deleting list all-test with id $d_z_id\n";
+    print "deleting list $default_alias_name with id $d_z_id\n";
 
     my $d5 = new XmlDoc;
 
@@ -184,8 +186,9 @@ if (defined $d_z_id) {
 
 my $d3 = new XmlDoc;
 $d3->start('CreateDistributionListRequest', $MAILNS);
-$d3->add('name', $MAILNS, undef, "all-test\@". $default_domain);
-$d3->add('a', $MAILNS, {"n" => "zimbraMailStatus"}, "enabled");
+$d3->add('name', $MAILNS, undef, "$default_alias_name\@". $default_domain);
+$d3->add('a', $MAILNS, {"n" => "zimbraMailStatus"}, "disabled");
+$d3->add('a', $MAILNS, {"n" => "zimbraHideInGal"}, "TRUE");
 $d3->end;
 
 my $r3 = $SOAP->invoke($url, $d3->root(), $context);
@@ -196,7 +199,7 @@ my $r3 = $SOAP->invoke($url, $d3->root(), $context);
 print "add result: ", $r3->name, "\n";
 if ($r3->name eq "Fault") {
     print Dumper ($r3);
-    print "Error adding all@, skipping.\n";
+    print "Error adding $default_alias_name\@, skipping.\n";
     exit;
 }
 
@@ -213,11 +216,12 @@ my $d4 = new XmlDoc;
 $d4->start ('AddDistributionListMemberRequest', $MAILNS);
 $d4->add ('id', $MAILNS, undef, $z_id);
 for (@l) {
+    next if ($_ =~ /archive$/);
     $_ .= "\@" . $default_domain
         if ($_ !~ /\@/);
-    print "adding $_\n";
+     print "adding $_\n";
     $d4->add ('dlm', $MAILNS, undef, $_);
-}
+ }
 $d4->end;
 
 my $r4 = $SOAP->invoke($url, $d4->root(), $context);
