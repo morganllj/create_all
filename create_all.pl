@@ -301,10 +301,12 @@ sub get_list_in_range($$$) {
 			  #level
 
 	    }
- 	    my @my_l = delete_in_range ($prfx2pass, $beg, $end);
-	    decrement_del_recurse();
-	    return if (@my_l);  # should cause us to drop back one level
+ 	    # my @my_l = get_list_in_range ($prfx2pass, $beg, $end);
+	    # decrement_del_recurse();
+	    # return @my_l if (@my_l);  # should cause us to drop back one level
 			      # in recursion
+ 	    push @l, get_list_in_range ($prfx2pass, $beg, $end);
+	    decrement_del_recurse();
  	} else {
 	    push @l, parse_and_return_list($r);
         }
