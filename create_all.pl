@@ -24,18 +24,6 @@ my $zimbra_special =
     'sjones|aharris|'.        # Gary's test users
     'hammy|spammy$';          # Spam training users 
 
-# hostname for zimbra store.  It can be any of your stores.
-# it can be overridden on the command line.
-my $default_zimbra_svr = "dmail01.domain.org";
-# zimbra admin password
-my $default_zimbra_pass  = "pass";
-
-my $default_alias_name = "all-34Thg90";
-
-# default domain, used every time a user is created and in some cases
-# modified.  Can be overridden on the command line.
-my $default_domain       = "dev.domain.org";
-
 use strict;
 use Getopt::Std;
 use Net::LDAP;
@@ -56,29 +44,34 @@ sub delete_not_in_ldap();
 sub get_list_in_range($$$);
 sub parse_and_return_list($);
 
-my $zimbra_svr = "dmail01.domain.org";
-my $zimbra_pass = "pass";
-my $max_recurse = 5;
+my $opts;
+getopts('z:p:l:b:D:w:m:a:', \%$opts);
 
-
+################
+# Zimbra SOAP
+## Any of your stores
+my $zimbra_svr =    $opts->{z} || "dmail01.domain.org";
+## admin user pass
+my $zimbra_pass =   $opts->{p} || "pass";
+## domain within which you want to create the "all" alias
+my $domain =        $opts->{m} || "dev.domain.org";
+my $alias_name =    $opts->{a} ||"all-34Thg90";
 
 ################
 # Zimbra LDAP
-my $z_ldap_host = "dmldap01.domain.org";
-my $z_ldap_base = "dc=domain,dc=org";
-my $z_ldap_binddn = "cn=config";
-my $z_ldap_pass = "pass";
+my $z_ldap_host =   $opts->{l} || "dmldap01.domain.org";
+my $z_ldap_base =   $opts->{b} || "dc=domain,dc=org";
+my $z_ldap_binddn = $opts->{D} || "cn=config";
+my $z_ldap_pass =   $opts->{w} || "pass";
+
+
+my $max_recurse = 5;
 
 my $ldap = Net::LDAP->new($z_ldap_host) or die "$@";
 $ldap->bind(dn=>$z_ldap_binddn, password=>$z_ldap_pass);
 
 
-
-#my $opts;
-#getopts('hl:D:w:b:em:ndz:s:p:', \%$opts);
-
-# url for zimbra store.  It can be any of your stores
-# my $url = "https://dmail01.domain.org:7071/service/admin/soap/";
+# url for zimbra store.
 my $url = "https://" . $zimbra_svr . ":7071/service/admin/soap/";
 
 my $ACCTNS = "urn:zimbraAdmin";
@@ -104,6 +97,8 @@ my $context = $SOAP->zimbraContext($authToken, $sessionId);
 
 my $d2 = new XmlDoc;
 
+print "Building user list..\n";
+
 $d2->start('SearchDirectoryRequest', $MAILNS,
 	  {'sortBy' => "uid",
 	   'attrs'  => "uid",
@@ -125,10 +120,31 @@ my $r = $SOAP->invoke($url, $d2->root(), $context);
 
 my @l;
 if ($r->name eq "Fault") {
-    # break down the search by alpha/numeric
-    print "\tFault! ..recursing deeper to return fewer results.\n";
-    @l = get_list_in_range(undef, "a", "z");
- } else {
+
+    # get the reason for the fault
+    my $rsn;
+    for my $v (@{$r->children()}) {
+        if ($v->name eq "Detail") {
+	    for my $v2 (@{@{$v->children()}[0]->children()}) {
+		if ($v2->name eq "Code") {
+		    $rsn = $v2->content;
+		}
+	    }
+	}
+    }
+
+    # break down the search by alpha/numeric if reason is 
+    #    account.TOO_MANY_SEARCH_RESULTS
+    if (defined $rsn && $rsn eq "account.TOO_MANY_SEARCH_RESULTS") {
+	print "\tfault due to $rsn\n";
+        print "\trecursing deeper to return fewer results.\n";
+
+	@l = get_list_in_range(undef, "a", "z");
+    } else {
+        print "unhandled reason: $rsn, exiting.\n";
+        exit;
+    }
+} else {
     if ($r->name ne "account") {
 	print "skipping delete, unknown record type returned: ", $r->name, "\n";
 	return;
@@ -143,10 +159,8 @@ if ($r->name eq "Fault") {
 
 
 
-
 # search out the zimbraId
-
-my $fil = "(&(objectclass=zimbraDistributionList)(uid=$default_alias_name))";
+my $fil = "(&(objectclass=zimbraDistributionList)(uid=$alias_name))";
 print "searching ldap for dist list with $fil\n";
 
 my $sr = $ldap->search(base=>$z_ldap_base, filter=>$fil);
@@ -157,14 +171,13 @@ my $d_z_id;
 for my $l_dist ($sr->entries) {
     $d_z_id = $l_dist->get_value("zimbraId");
 
-#print "list: $list\n";
-#print "members: " , join ' ', @mbrs , "\n";
 }
 
 if (defined $d_z_id) {
     # list exists, delete it
 
-    print "deleting list $default_alias_name with id $d_z_id\n";
+#    print "deleting list $alias_name with id $d_z_id at ", `date`;
+    print "deleting list $alias_name at ", `date`;
 
     my $d5 = new XmlDoc;
 
@@ -180,13 +193,12 @@ if (defined $d_z_id) {
 
 
 
-
-
-
+# print "creating list $alias_name with id $d_z_id at ", `date`;
+print "creating list $alias_name at ", `date`;
 
 my $d3 = new XmlDoc;
 $d3->start('CreateDistributionListRequest', $MAILNS);
-$d3->add('name', $MAILNS, undef, "$default_alias_name\@". $default_domain);
+$d3->add('name', $MAILNS, undef, "$alias_name\@". $domain);
 $d3->add('a', $MAILNS, {"n" => "zimbraMailStatus"}, "disabled");
 $d3->add('a', $MAILNS, {"n" => "zimbraHideInGal"}, "TRUE");
 $d3->end;
@@ -199,7 +211,7 @@ my $r3 = $SOAP->invoke($url, $d3->root(), $context);
 print "add result: ", $r3->name, "\n";
 if ($r3->name eq "Fault") {
     print Dumper ($r3);
-    print "Error adding $default_alias_name\@, skipping.\n";
+    print "Error adding $alias_name\@, skipping.\n";
     exit;
 }
 
@@ -211,25 +223,30 @@ for my $child (@{$r3->children()}) {
     }
 }
 
+
+
+
+
+
+
+print "adding members to $alias_name at ", `date`;
+
 my $d4 = new XmlDoc;
 
 $d4->start ('AddDistributionListMemberRequest', $MAILNS);
 $d4->add ('id', $MAILNS, undef, $z_id);
 for (@l) {
     next if ($_ =~ /archive$/);
-    $_ .= "\@" . $default_domain
+    $_ .= "\@" . $domain
         if ($_ !~ /\@/);
-     print "adding $_\n";
+    #print "adding $_\n";
     $d4->add ('dlm', $MAILNS, undef, $_);
  }
 $d4->end;
 
 my $r4 = $SOAP->invoke($url, $d4->root(), $context);
 
-
-
-
-
+print "finished adding members to $alias_name at ", `date`;
 
 
 #######
@@ -276,7 +293,9 @@ sub get_list_in_range($$$) {
 	$fil .= $prfx if (defined $prfx);
 	$fil .= "${l}\*";
 
-	print "searching $fil\n";
+	print "searching $fil\n"
+	    if ( exists $opts->{d}) 
+
 	my $d = new XmlDoc;
 	$d->start('SearchDirectoryRequest', $MAILNS);
 	$d->add('query', $MAILNS, undef, $fil);
