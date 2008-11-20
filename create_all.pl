@@ -16,7 +16,7 @@ use lib "/usr/local/zcs-5.0.2_GA_1975-src/ZimbraServer/src/perl/soap";
 my $zimbra_special = 
     '^admin|wiki|spam\.[a-z]+|ham\.[a-z]+|'. # Zimbra supplied
                # accounts. This will cause you trouble if you have users that 
-               # start with ham or spam  For instance: ham.let.  Unlikely 
+               # start with ham or spam  For instance: ham.let--unlikely 
                # perhaps.
     'ser|'.
 #    'mlehmann|gab|morgan|cferet|'.  
@@ -45,7 +45,7 @@ sub get_list_in_range($$$);
 sub parse_and_return_list($);
 
 my $opts;
-getopts('z:p:l:b:D:w:m:a:', \%$opts);
+getopts('z:p:l:b:D:w:m:a:d', \%$opts);
 
 ################
 # Zimbra SOAP
@@ -53,9 +53,9 @@ getopts('z:p:l:b:D:w:m:a:', \%$opts);
 my $zimbra_svr =    $opts->{z} || "dmail01.domain.org";
 ## admin user pass
 my $zimbra_pass =   $opts->{p} || "pass";
-## domain within which you want to create the "all" alias
+## domain within which you want to create the alias
 my $domain =        $opts->{m} || "dev.domain.org";
-my $alias_name =    $opts->{a} ||"all-34Thg90";
+my $alias_name =    $opts->{a} || "all-34Thg90";
 
 ################
 # Zimbra LDAP
@@ -64,7 +64,9 @@ my $z_ldap_base =   $opts->{b} || "dc=domain,dc=org";
 my $z_ldap_binddn = $opts->{D} || "cn=config";
 my $z_ldap_pass =   $opts->{w} || "pass";
 
-
+# If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
+# search for a subset.  If the recursion somehow goes awry or there
+# are juts too many entries we need to have a limit of some sort.
 my $max_recurse = 5;
 
 my $ldap = Net::LDAP->new($z_ldap_host) or die "$@";
@@ -95,9 +97,12 @@ my $authToken = $authResponse->find_child('authToken')->content;
 my $sessionId = $authResponse->find_child('sessionId')->content;
 my $context = $SOAP->zimbraContext($authToken, $sessionId);
 
-my $d2 = new XmlDoc;
+
+
 
 print "Building user list..\n";
+
+my $d2 = new XmlDoc;
 
 $d2->start('SearchDirectoryRequest', $MAILNS,
 	  {'sortBy' => "uid",
@@ -107,37 +112,27 @@ $d2->start('SearchDirectoryRequest', $MAILNS,
 $d2->add('query', $MAILNS, { "types" => "accounts" });
 $d2->end();
 
-
-#     # skip special users?
+#     # TODO: skip special users?
 #     if ($usr =~ /$zimbra_special/) {
 # 	print "skipping special user $usr\n"
 # 	    if (exists $opts->{d});
 # 	next;
 #     }
 
-
 my $r = $SOAP->invoke($url, $d2->root(), $context);
 
 my @l;
 if ($r->name eq "Fault") {
 
-    # get the reason for the fault
-    my $rsn;
-    for my $v (@{$r->children()}) {
-        if ($v->name eq "Detail") {
-	    for my $v2 (@{@{$v->children()}[0]->children()}) {
-		if ($v2->name eq "Code") {
-		    $rsn = $v2->content;
-		}
-	    }
-	}
-    }
+    my $rsn = get_fault_reason($r);
 
     # break down the search by alpha/numeric if reason is 
     #    account.TOO_MANY_SEARCH_RESULTS
     if (defined $rsn && $rsn eq "account.TOO_MANY_SEARCH_RESULTS") {
-	print "\tfault due to $rsn\n";
-        print "\trecursing deeper to return fewer results.\n";
+	if (exists $opts->{d}) {
+	    print "\tfault due to $rsn\n";
+	    print "\trecursing deeper to return fewer results.\n";
+	}
 
 	@l = get_list_in_range(undef, "a", "z");
     } else {
@@ -157,8 +152,6 @@ if ($r->name eq "Fault") {
 
 
 
-
-
 # search out the zimbraId
 my $fil = "(&(objectclass=zimbraDistributionList)(uid=$alias_name))";
 print "searching ldap for dist list with $fil\n";
@@ -174,9 +167,8 @@ for my $l_dist ($sr->entries) {
 }
 
 if (defined $d_z_id) {
-    # list exists, delete it
 
-#    print "deleting list $alias_name with id $d_z_id at ", `date`;
+    # list exists, delete it
     print "deleting list $alias_name at ", `date`;
 
     my $d5 = new XmlDoc;
@@ -186,11 +178,16 @@ if (defined $d_z_id) {
     $d5->end();
 
     my $r = $SOAP->invoke($url, $d5->root(), $context);
+
+    if ($r->name eq "Fault") {
+	print "result: ", $r->name, "\n";
+	print Dumper ($r);
+	print "Error deleting $alias_name\@, exiting.\n";
+	exit;
+    }
+
+
 }
-
-
-
-
 
 
 # print "creating list $alias_name with id $d_z_id at ", `date`;
@@ -204,12 +201,9 @@ $d3->add('a', $MAILNS, {"n" => "zimbraHideInGal"}, "TRUE");
 $d3->end;
 
 my $r3 = $SOAP->invoke($url, $d3->root(), $context);
-# TODO: error checking!
 
-
-
-print "add result: ", $r3->name, "\n";
 if ($r3->name eq "Fault") {
+    print "result: ", $r3->name, "\n";
     print Dumper ($r3);
     print "Error adding $alias_name\@, skipping.\n";
     exit;
@@ -223,30 +217,36 @@ for my $child (@{$r3->children()}) {
     }
 }
 
-
-
-
-
-
-
 print "adding members to $alias_name at ", `date`;
 
 my $d4 = new XmlDoc;
 
 $d4->start ('AddDistributionListMemberRequest', $MAILNS);
 $d4->add ('id', $MAILNS, undef, $z_id);
+
+my $member_count = 0;
 for (@l) {
     next if ($_ =~ /archive$/);
     $_ .= "\@" . $domain
         if ($_ !~ /\@/);
-    #print "adding $_\n";
+    print "adding $_\n"
+	if (exists $opts->{d});
+        
     $d4->add ('dlm', $MAILNS, undef, $_);
+    $member_count++;
  }
 $d4->end;
 
 my $r4 = $SOAP->invoke($url, $d4->root(), $context);
 
-print "finished adding members to $alias_name at ", `date`;
+if ($r4->name eq "Fault") {
+    print "result: ", $r4->name, "\n";
+    print Dumper ($r4);
+    print "Error adding distribution list members.  This probably means the alias is empty\n";
+    exit;
+}
+
+print "finished adding $member_count members to $alias_name at ", `date`;
 
 
 #######
@@ -294,7 +294,7 @@ sub get_list_in_range($$$) {
 	$fil .= "${l}\*";
 
 	print "searching $fil\n"
-	    if ( exists $opts->{d}) 
+	    if ( exists $opts->{d});
 
 	my $d = new XmlDoc;
 	$d->start('SearchDirectoryRequest', $MAILNS);
@@ -306,26 +306,44 @@ sub get_list_in_range($$$) {
 # 	if ($r->name eq "Fault" || !defined $prfx || 
 #	    scalar (split //, $prfx) < 6 ) {
  	if ($r->name eq "Fault") {
-# 	    # TODO: limit recursion depth
-	    print "\tFault! ..recursing deeper to return fewer results.\n";
-	    my $prfx2pass = $l;
-	    $prfx2pass = $prfx . $prfx2pass if defined $prfx;
+	   
+	    my $rsn = get_fault_reason ($r);
 
-	    increment_del_recurse();
-	    if (get_del_recurse() > $max_recurse) {
-		print "\tmax recursion ($max_recurse) hit, backing off..\n";
+	    # break down the search by alpha/numeric if reason is 
+	    #    account.TOO_MANY_SEARCH_RESULTS
+	    if (defined $rsn && $rsn eq "account.TOO_MANY_SEARCH_RESULTS") {
+		if (exists $opts->{d}) {
+		    print "\tfault due to $rsn\n";
+		    print "\trecursing deeper to return fewer results.\n";
+		}
+		
+		my $prfx2pass = $l;
+		$prfx2pass = $prfx . $prfx2pass if defined $prfx;
+		
+		increment_del_recurse();
+		if (get_del_recurse() > $max_recurse) {
+		    print "\tmax recursion ($max_recurse) hit, backing off.. \n";
+		    print "\tThis may mean a truncated user list.\n";
+		    decrement_del_recurse();
+		    return 1; # return failure so caller knows to return
+		              # and not keep trying to recurse to this
+		              # level
+
+		}
+
+		push @l, get_list_in_range ($prfx2pass, $beg, $end);
 		decrement_del_recurse();
-		return 1; #return failure so caller knows to return
-			  #and not keep trying to recurse to this
-			  #level
 
-	    }
- 	    # my @my_l = get_list_in_range ($prfx2pass, $beg, $end);
-	    # decrement_del_recurse();
-	    # return @my_l if (@my_l);  # should cause us to drop back one level
+		# my @my_l = get_list_in_range ($prfx2pass, $beg, $end);
+		# decrement_del_recurse();
+		# return @my_l if (@my_l);  # should cause us to drop back one level
 			      # in recursion
- 	    push @l, get_list_in_range ($prfx2pass, $beg, $end);
-	    decrement_del_recurse();
+
+	    } else {
+		print "unhandled reason: $rsn, exiting.\n";
+		exit;
+	    }
+
  	} else {
 	    push @l, parse_and_return_list($r);
         }
@@ -352,3 +370,22 @@ BEGIN {
     }
 }
 
+
+
+sub get_fault_reason {
+    my $r = shift;
+
+    # get the reason for the fault
+    #my $rsn;
+    for my $v (@{$r->children()}) {
+        if ($v->name eq "Detail") {
+	    for my $v2 (@{@{$v->children()}[0]->children()}) {
+		if ($v2->name eq "Code") {
+		    return $v2->content;
+		}
+	    }
+	}
+    }
+
+    return "<no reason found..>";
+}
