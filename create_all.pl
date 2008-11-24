@@ -43,6 +43,10 @@ sub build_target_z_value($$);
 sub delete_not_in_ldap();
 sub get_list_in_range($$$);
 sub parse_and_return_list($);
+sub find_and_del_alias($);
+sub create_and_populate_alias($@);
+sub get_alias_z_id($);
+sub rename_alias($$);
 
 my $opts;
 getopts('z:p:l:b:D:w:m:a:d', \%$opts);
@@ -57,10 +61,12 @@ my $zimbra_pass =   $opts->{p} || "pass";
 my $domain =        $opts->{m} || "dev.domain.org";
 my $alias_name =    $opts->{a} || "all-34Thg90";
 
+my $alias_name_tmp = $alias_name . "_tmp";
+
 ################
 # Zimbra LDAP
 my $z_ldap_host =   $opts->{l} || "dmldap01.domain.org";
-my $z_ldap_base =   $opts->{b} || "dc=domain,dc=org";
+my $z_ldap_base =   $opts->{b} || "dc=dev,dc=domain,dc=org";
 my $z_ldap_binddn = $opts->{D} || "cn=config";
 my $z_ldap_pass =   $opts->{w} || "pass";
 
@@ -100,6 +106,9 @@ my $context = $SOAP->zimbraContext($authToken, $sessionId);
 
 
 
+
+
+# Get list of users from Zimbra
 print "Building user list..\n";
 
 my $d2 = new XmlDoc;
@@ -152,101 +161,25 @@ if ($r->name eq "Fault") {
 
 
 
-# search out the zimbraId
-my $fil = "(&(objectclass=zimbraDistributionList)(uid=$alias_name))";
-print "searching ldap for dist list with $fil\n";
-
-my $sr = $ldap->search(base=>$z_ldap_base, filter=>$fil);
-$sr->code && die $sr->error;
-
-my @mbrs;
-my $d_z_id;
-for my $l_dist ($sr->entries) {
-    $d_z_id = $l_dist->get_value("zimbraId");
-
-}
-
-if (defined $d_z_id) {
-
-    # list exists, delete it
-    print "deleting list $alias_name at ", `date`;
-
-    my $d5 = new XmlDoc;
-
-    $d5->start('DeleteDistributionListRequest', $MAILNS);
-    $d5->add('id', $MAILNS, undef, $d_z_id);
-    $d5->end();
-
-    my $r = $SOAP->invoke($url, $d5->root(), $context);
-
-    if ($r->name eq "Fault") {
-	print "result: ", $r->name, "\n";
-	print Dumper ($r);
-	print "Error deleting $alias_name\@, exiting.\n";
-	exit;
-    }
 
 
-}
+# search out and delete the tmp alias if it exists.  In most cases it
+# won't exist but if, say this script was interrupted it would be out
+# there and should be deleted before we attempt to create it.
+print "checking for $alias_name_tmp\n";
+find_and_del_alias($alias_name_tmp);
 
+print "creating and populating $alias_name_tmp at ", `date`;
+create_and_populate_alias($alias_name_tmp, @l);
 
-# print "creating list $alias_name with id $d_z_id at ", `date`;
-print "creating list $alias_name at ", `date`;
+print "renaming $alias_name_tmp to $alias_name\n";
+rename_alias($alias_name_tmp, $alias_name);
 
-my $d3 = new XmlDoc;
-$d3->start('CreateDistributionListRequest', $MAILNS);
-$d3->add('name', $MAILNS, undef, "$alias_name\@". $domain);
-$d3->add('a', $MAILNS, {"n" => "zimbraMailStatus"}, "disabled");
-$d3->add('a', $MAILNS, {"n" => "zimbraHideInGal"}, "TRUE");
-$d3->end;
+print "looking for and deleting $alias_name_tmp\n";
+find_and_del_alias($alias_name_tmp);
 
-my $r3 = $SOAP->invoke($url, $d3->root(), $context);
+print "done at ", `date`;
 
-if ($r3->name eq "Fault") {
-    print "result: ", $r3->name, "\n";
-    print Dumper ($r3);
-    print "Error adding $alias_name\@, skipping.\n";
-    exit;
-}
-
-my $z_id;
-for my $child (@{$r3->children()}) {
-    for my $attr (@{$child->children}) {
-	$z_id = $attr->content()
-	    if ((values %{$attr->attrs()})[0] eq "zimbraId");
-    }
-}
-
-print "adding members to $alias_name at ", `date`;
-
-my $d4 = new XmlDoc;
-
-$d4->start ('AddDistributionListMemberRequest', $MAILNS);
-$d4->add ('id', $MAILNS, undef, $z_id);
-
-my $member_count = 0;
-for (@l) {
-    next if ($_ =~ /archive$/);
-    $_ .= "\@" . $domain
-        if ($_ !~ /\@/);
-    print "adding $_\n"
-	if (exists $opts->{d});
-        
-    $d4->add ('dlm', $MAILNS, undef, $_);
-    $member_count++;
- }
-$d4->end;
-
-my $r4 = $SOAP->invoke($url, $d4->root(), $context);
-
-if ($r4->name eq "Fault") {
-    print "result: ", $r4->name, "\n";
-    print Dumper ($r4);
-    print "Error adding distribution list members.  This probably means the alias is empty\n";
-    exit;
-}
-
-print "finished adding $member_count members to $alias_name at ", `date`;
 
 
 #######
@@ -389,3 +322,180 @@ sub get_fault_reason {
 
     return "<no reason found..>";
 }
+
+
+
+sub find_and_del_alias($) {
+    my $alias_name = shift;
+
+    my $d_z_id = get_alias_z_id($alias_name);
+    if (defined $d_z_id) {
+
+	# list exists, delete it
+	print "\tdeleting list $alias_name\n";
+
+	my $d5 = new XmlDoc;
+
+	$d5->start('DeleteDistributionListRequest', $MAILNS);
+	$d5->add('id', $MAILNS, undef, $d_z_id);
+	$d5->end();
+
+	my $r = $SOAP->invoke($url, $d5->root(), $context);
+
+	if ($r->name eq "Fault") {
+	    print "result: ", $r->name, "\n";
+	    print Dumper ($r);
+	    print "Error deleting $alias_name\@, exiting.\n";
+	    exit;
+	}
+    } else {
+	print "\talias $alias_name not found..\n";
+    }
+}
+
+
+sub get_alias_z_id($) {
+    my $alias_name = shift;
+
+    # return undef if the alias doesn't exist
+    my $d_z_id = undef;
+
+    # search out the zimbraId of the production alias
+    my $fil = "(&(objectclass=zimbraDistributionList)(uid=$alias_name))";
+    print "searching ldap for dist list with $fil\n"
+	if (exists $opts->{d});
+
+    my $sr = $ldap->search(base=>$z_ldap_base, filter=>$fil);
+    $sr->code && die $sr->error;
+
+    my @mbrs;
+
+    for my $l_dist ($sr->entries) {
+	$d_z_id = $l_dist->get_value("zimbraId");
+    }
+
+    return $d_z_id;
+}
+
+
+
+
+
+
+
+
+
+
+sub create_and_populate_alias($@) {
+    my $alias_name = shift;
+    my @l = @_;
+
+    # print "creating list $alias_name with id $d_z_id at ", `date`;
+    # print "creating list $alias_name at ", `date`;
+
+    my $d3 = new XmlDoc;
+    $d3->start('CreateDistributionListRequest', $MAILNS);
+    $d3->add('name', $MAILNS, undef, "$alias_name\@". $domain);
+    $d3->add('a', $MAILNS, {"n" => "zimbraMailStatus"}, "disabled");
+    $d3->add('a', $MAILNS, {"n" => "zimbraHideInGal"}, "TRUE");
+    $d3->end;
+
+    my $r3 = $SOAP->invoke($url, $d3->root(), $context);
+
+    if ($r3->name eq "Fault") {
+	print "result: ", $r3->name, "\n";
+	print Dumper ($r3);
+	print "Error adding $alias_name\@, skipping.\n";
+	exit;
+    }
+
+    my $z_id;
+    for my $child (@{$r3->children()}) {
+	for my $attr (@{$child->children}) {
+	    $z_id = $attr->content()
+		if ((values %{$attr->attrs()})[0] eq "zimbraId");
+	}
+    }
+
+    # print "adding members to $alias_name at ", `date`;
+
+    my $d4 = new XmlDoc;
+
+    $d4->start ('AddDistributionListMemberRequest', $MAILNS);
+    $d4->add ('id', $MAILNS, undef, $z_id);
+
+    my $member_count = 0;
+    for (@l) {
+	next if ($_ =~ /archive$/);
+	$_ .= "\@" . $domain
+	    if ($_ !~ /\@/);
+	print "adding $_\n"
+	    if (exists $opts->{d});
+        
+	$d4->add ('dlm', $MAILNS, undef, $_);
+	$member_count++;
+    }
+    $d4->end;
+
+    my $r4 = $SOAP->invoke($url, $d4->root(), $context);
+
+    if ($r4->name eq "Fault") {
+	print "result: ", $r4->name, "\n";
+	print Dumper ($r4);
+	print "Error adding distribution list members.  This probably means the alias was left empty\n";
+	exit;
+    }
+
+    print "\tfinished adding $member_count members to $alias_name at ", `date`;
+}
+
+
+
+sub rename_alias($$) {
+    my ($my_alias_name_tmp, $my_alias_name) = @_;
+
+    my $d_z_id = get_alias_z_id($my_alias_name);
+    if (defined $d_z_id) {
+
+	my $my_d = new XmlDoc;
+	$my_d->start('RenameDistributionListRequest', $MAILNS);
+	$my_d->add('id', $MAILNS, undef, "$d_z_id");
+	$my_d->add('newName', $MAILNS, undef, "$my_alias_name\@". $domain);
+	$my_d->end;
+
+	my $my_r = $SOAP->invoke($url, $my_d->root(), $context);
+
+	if ($my_r->name eq "Fault") {
+	    print "result: ", $my_r->name, "\n";
+	    print Dumper ($my_r);
+	    print "Error renaming $my_alias_name_tmp $my_alias_name, skipping.\n";
+	    exit;
+	}
+    }
+}
+
+
+
+
+# <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope">
+#     <soap:Header>
+#         <context xmlns="urn:zimbra">
+#             <userAgent name="ZimbraWebClient - FF2.0 (Linux)"/>
+#             <sessionId id="3340"/>
+#             <format type="js"/>
+#             <authToken>
+#                 0_b6983d905b848e6d7547b808809cfb1a611108d3_69643d33363a38323539616631392d313031302d343366392d613338382d6439393038363234393862623b6578703d31333a313232373231363531393132373b61646d696e3d313a313b747970653d363a7a696d6272613b6d61696c686f73743d31363a3137302e3233352e312e3234313a38303b
+#             </authToken>
+#         </context>
+#     </soap:Header>
+#     <soap:Body>
+#         <RenameDistributionListRequest xmlns="urn:zimbraAdmin">
+#             <id>
+#                 8b3fe3c8-c9d6-4771-8419-dcf5e071b2ba
+#             </id>
+#             <newName>
+#                 morgantest@dev.domain.org
+#             </newName>
+#         </RenameDistributionListRequest>
+#     </soap:Body>
+# </soap:Envelope>
