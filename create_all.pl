@@ -24,6 +24,7 @@ my $zimbra_special =
     'sjones|aharris|'.        # Gary's test users
     'hammy|spammy$';          # Spam training users 
 
+
 use strict;
 use Getopt::Std;
 use Net::LDAP;
@@ -69,6 +70,17 @@ my $z_ldap_host =   $opts->{l} || "dmldap01.domain.org";
 my $z_ldap_base =   $opts->{b} || "dc=dev,dc=domain,dc=org";
 my $z_ldap_binddn = $opts->{D} || "cn=config";
 my $z_ldap_pass =   $opts->{w} || "pass";
+
+# if this is defined create_all will omit users in this cos.
+# prod
+my $omit_cos_id = "f1b022c3-82a0-44c5-97e6-406c66e9af66";
+# dev
+# my $omit_cos_id = "28a287bd-199b-4ff0-82cf-ca0578756035"; 
+#
+my $search_fil = "(!(zimbracosid=$omit_cos_id))";
+
+
+
 
 # If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
 # search for a subset.  If the recursion somehow goes awry or there
@@ -118,7 +130,13 @@ $d2->start('SearchDirectoryRequest', $MAILNS,
 	   'attrs'  => "uid",
 	   'types'  => "accounts"}
     ); 
-$d2->add('query', $MAILNS, { "types" => "accounts" });
+
+if (defined $search_fil) {
+    $d2->add('query', $MAILNS, { "types" => "accounts" }, $search_fil);
+} else {
+    $d2->add('query', $MAILNS, { "types" => "accounts" });
+}
+
 $d2->end();
 
 #     # TODO: skip special users?
@@ -166,19 +184,22 @@ if ($r->name eq "Fault") {
 # search out and delete the tmp alias if it exists.  In most cases it
 # won't exist but if, say this script was interrupted it would be out
 # there and should be deleted before we attempt to create it.
-print "checking for $alias_name_tmp\n";
+print "checking for $alias_name_tmp at ", `date`;
 find_and_del_alias($alias_name_tmp);
 
 print "creating and populating $alias_name_tmp at ", `date`;
 create_and_populate_alias($alias_name_tmp, @l);
 
-print "renaming $alias_name_tmp to $alias_name\n";
+print "checking for $alias_name at ", `date`;
+find_and_del_alias($alias_name);
+
+print "renaming $alias_name_tmp to $alias_name at ", `date`;
 rename_alias($alias_name_tmp, $alias_name);
 
-print "looking for and deleting $alias_name_tmp\n";
-find_and_del_alias($alias_name_tmp);
+# print "looking for and deleting $alias_name_tmp\n";
+# find_and_del_alias($alias_name_tmp);
 
-print "done at ", `date`;
+print "finished at ", `date`;
 
 
 
@@ -222,16 +243,20 @@ sub get_list_in_range($$$) {
     my @l;
 
     for my $l (${beg}..${end}) {
-	my $fil = 'uid=';
+	my $fil = '(uid=';
 	$fil .= $prfx if (defined $prfx);
-	$fil .= "${l}\*";
+	# $fil .= "${l}\*";
+	$fil .= "${l}\*)";
+
+	$fil = "(&(" . $fil . $search_fil . "))"
+	    if (defined ($search_fil));
 
 	print "searching $fil\n"
 	    if ( exists $opts->{d});
 
 	my $d = new XmlDoc;
 	$d->start('SearchDirectoryRequest', $MAILNS);
-	$d->add('query', $MAILNS, undef, $fil);
+	$d->add('query', $MAILNS, { "types" => "accounts" }, $fil);
 	$d->end;
 	
 	my $r = $SOAP->invoke($url, $d->root(), $context);
@@ -348,9 +373,9 @@ sub find_and_del_alias($) {
 	    print "Error deleting $alias_name\@, exiting.\n";
 	    exit;
 	}
-    } else {
-	print "\talias $alias_name not found..\n";
-    }
+    }# else {
+#	print "\talias $alias_name not found..\n";
+#    }
 }
 
 
@@ -446,7 +471,7 @@ sub create_and_populate_alias($@) {
 	exit;
     }
 
-    print "\tfinished adding $member_count members to $alias_name at ", `date`;
+    print "\tfinished adding $member_count members to $alias_name\n";
 }
 
 
@@ -454,9 +479,8 @@ sub create_and_populate_alias($@) {
 sub rename_alias($$) {
     my ($my_alias_name_tmp, $my_alias_name) = @_;
 
-    my $d_z_id = get_alias_z_id($my_alias_name);
+    my $d_z_id = get_alias_z_id($my_alias_name_tmp);
     if (defined $d_z_id) {
-
 	my $my_d = new XmlDoc;
 	$my_d->start('RenameDistributionListRequest', $MAILNS);
 	$my_d->add('id', $MAILNS, undef, "$d_z_id");
@@ -471,6 +495,8 @@ sub rename_alias($$) {
 	    print "Error renaming $my_alias_name_tmp $my_alias_name, skipping.\n";
 	    exit;
 	}
+    } else {
+	print "\talias $alias_name_tmp doesn't exist, skipping.\n";
     }
 }
 
