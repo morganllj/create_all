@@ -19,8 +19,6 @@ my $zimbra_special =
                # start with ham or spam  For instance: ham.let--unlikely 
                # perhaps.
     'ser|'.
-#    'mlehmann|gab|morgan|cferet|'.  
-               # Steve, Matt, Gary, Feret and I
     'sjones|aharris|'.        # Gary's test users
     'hammy|spammy$';          # Spam training users 
 
@@ -68,7 +66,7 @@ my $alias_name_tmp = $alias_name . "_tmp";
 # Zimbra LDAP
 my $z_ldap_host =   $opts->{l} || "dmldap01.domain.org";
 my $z_ldap_base =   $opts->{b} || "dc=dev,dc=domain,dc=org";
-my $z_ldap_binddn = $opts->{D} || "cn=config";
+my $z_ldap_binddn = $opts->{D} || "uid=zimbra,cn=admins,cn=zimbra";
 my $z_ldap_pass =   $opts->{w} || "pass";
 
 # if this is defined create_all will omit users in this cos.
@@ -77,10 +75,8 @@ my $omit_cos_id = "f1b022c3-82a0-44c5-97e6-406c66e9af66";
 # dev
 # my $omit_cos_id = "28a287bd-199b-4ff0-82cf-ca0578756035"; 
 #
-my $search_fil = "(!(zimbracosid=$omit_cos_id))";
-
-
-
+# my $search_fil = "(!(zimbracosid=$omit_cos_id))";
+my $search_fil = "(&(!(zimbracosid=$omit_cos_id))(zimbraaccountstatus=active))";
 
 # If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
 # search for a subset.  If the recursion somehow goes awry or there
@@ -127,7 +123,7 @@ my $d2 = new XmlDoc;
 
 $d2->start('SearchDirectoryRequest', $MAILNS,
 	  {'sortBy' => "uid",
-	   'attrs'  => "uid",
+#	   'attrs'  => "uid",
 	   'types'  => "accounts"}
     ); 
 
@@ -167,13 +163,6 @@ if ($r->name eq "Fault") {
         exit;
     }
 } else {
-    if ($r->name ne "account") {
-	print "skipping delete, unknown record type returned: ", $r->name, "\n";
-	return;
-    }
-
-    print "returned ", $r->num_children, " children\n";
-
     @l = parse_and_return_list($r);
 }
 
@@ -210,18 +199,23 @@ sub parse_and_return_list($) {
 
     my @l;
 
+
+
     for my $child (@{$r->children()}) {
 	my ($mail, $z_id);
+
+
 
 	for my $attr (@{$child->children}) {
   	    if ((values %{$attr->attrs()})[0] eq "mail") {
   		$mail = $attr->content();
  	    }
-  	    if ((values %{$attr->attrs()})[0] eq "zimbraId") {
-  		$z_id = $attr->content();
-  	    }
+#   	    if ((values %{$attr->attrs()})[0] eq "zimbraId") {
+#   		$z_id = $attr->content();
+#   	    }
  	}
-	push @l, $mail;
+	push @l, $mail
+            unless (!defined $mail);
     }
 
     return @l
