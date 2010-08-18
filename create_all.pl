@@ -10,7 +10,8 @@
 #
 # The Zimbra SOAP libraries.  Download and uncompress the Zimbra
 # source code to get them.
-use lib "/usr/local/zcs-5.0.2_GA_1975-src/ZimbraServer/src/perl/soap";
+#use lib "/usr/local/zcs-5.0.2_GA_1975-src/ZimbraServer/src/perl/soap";
+use lib "/usr/local/zcs-6.0.7_GA_2483-src/ZimbraServer/src/perl/soap";
 # these accounts will never be added, removed or modified
 #   It's a perl regex
 my $zimbra_special = 
@@ -48,40 +49,51 @@ sub get_alias_z_id($);
 sub rename_alias($$);
 
 my $opts;
-getopts('z:p:l:b:D:w:m:a:d', \%$opts);
+getopts('z:p:l:b:D:w:m:a:dn', \%$opts);
 
 ################
 # Zimbra SOAP
 ## Any of your stores
-my $zimbra_svr =    $opts->{z} || "dmail01.domain.org";
+my $zimbra_svr =    $opts->{z} || "dmail02.domain.org";
 ## admin user pass
 my $zimbra_pass =   $opts->{p} || "pass";
 ## domain within which you want to create the alias
-my $domain =        $opts->{m} || "dev.domain.org";
+my $domain =        $opts->{m} || "dmail02.domain.org";
 my $alias_name =    $opts->{a} || "all-34Thg90";
 
 my $alias_name_tmp = $alias_name . "_tmp";
 
 ################
 # Zimbra LDAP
-my $z_ldap_host =   $opts->{l} || "dmldap01.domain.org";
-my $z_ldap_base =   $opts->{b} || "dc=dev,dc=domain,dc=org";
+my $z_ldap_host =   $opts->{l} || "dmail02.domain.org";
+my $z_ldap_base =   $opts->{b} || "dc=dmail02,dc=domain,dc=org";
 my $z_ldap_binddn = $opts->{D} || "uid=zimbra,cn=admins,cn=zimbra";
 my $z_ldap_pass =   $opts->{w} || "pass";
 
+exists ($opts->{n}) && print "\n-n used, no changes will be made\n";
+exists ($opts->{d}) && print "-d used, debugging will be printed\n";
+
+my $omit_cos_id;
 # if this is defined create_all will omit users in this cos.
 # prod
-my $omit_cos_id = "f1b022c3-82a0-44c5-97e6-406c66e9af66";
+$omit_cos_id = "f1b022c3-82a0-44c5-97e6-406c66e9af66";
 # dev
-# my $omit_cos_id = "28a287bd-199b-4ff0-82cf-ca0578756035"; 
+# $omit_cos_id = "28a287bd-199b-4ff0-82cf-ca0578756035"; 
 #
 # my $search_fil = "(!(zimbracosid=$omit_cos_id))";
-my $search_fil = "(&(!(zimbracosid=$omit_cos_id))(zimbraaccountstatus=active))";
+
+#$search_fil = "(&(!(zimbracosid=$omit_cos_id))(zimbraaccountstatus=active))";
+my $search_fil = "(zimbraaccountstatus=active)";
+
+$search_fil = "(&(!(zimbracosid=$omit_cos_id))$search_fil)"
+    if (defined ($omit_cos_id));
+
+
 
 # If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
 # search for a subset.  If the recursion somehow goes awry or there
-# are juts too many entries we need to have a limit of some sort.
-my $max_recurse = 5;
+# are just too many entries we need to have a limit of some sort.
+my $max_recurse = 15;
 
 my $ldap = Net::LDAP->new($z_ldap_host) or die "$@";
 $ldap->bind(dn=>$z_ldap_binddn, password=>$z_ldap_pass);
@@ -108,8 +120,9 @@ $d->end();
 # get back an authResponse, authToken, sessionId & context.
 my $authResponse = $SOAP->invoke($url, $d->root());
 my $authToken = $authResponse->find_child('authToken')->content;
-my $sessionId = $authResponse->find_child('sessionId')->content;
-my $context = $SOAP->zimbraContext($authToken, $sessionId);
+#my $sessionId = $authResponse->find_child('sessionId')->content;
+#my $context = $SOAP->zimbraContext($authToken, $sessionId);
+my $context = $SOAP->zimbraContext($authToken, undef);
 
 
 
@@ -123,7 +136,6 @@ my $d2 = new XmlDoc;
 
 $d2->start('SearchDirectoryRequest', $MAILNS,
 	  {'sortBy' => "uid",
-#	   'attrs'  => "uid",
 	   'types'  => "accounts"}
     ); 
 
@@ -236,7 +248,7 @@ sub get_list_in_range($$$) {
 
     my @l;
 
-    for my $l (${beg}..${end}) {
+    for my $l (${beg}..${end}, "_", "-") {
 	my $fil = '(uid=';
 	$fil .= $prfx if (defined $prfx);
 	# $fil .= "${l}\*";
@@ -359,14 +371,16 @@ sub find_and_del_alias($) {
 	$d5->add('id', $MAILNS, undef, $d_z_id);
 	$d5->end();
 
-	my $r = $SOAP->invoke($url, $d5->root(), $context);
+        if (!exists $opts->{n}) {
+            my $r = $SOAP->invoke($url, $d5->root(), $context);
 
-	if ($r->name eq "Fault") {
-	    print "result: ", $r->name, "\n";
-	    print Dumper ($r);
-	    print "Error deleting $alias_name\@, exiting.\n";
-	    exit;
-	}
+            if ($r->name eq "Fault") {
+                print "result: ", $r->name, "\n";
+                print Dumper ($r);
+                print "Error deleting $alias_name\@, exiting.\n";
+                exit;
+            }
+        }
     }# else {
 #	print "\talias $alias_name not found..\n";
 #    }
@@ -419,50 +433,57 @@ sub create_and_populate_alias($@) {
     $d3->add('a', $MAILNS, {"n" => "zimbraHideInGal"}, "TRUE");
     $d3->end;
 
-    my $r3 = $SOAP->invoke($url, $d3->root(), $context);
-
-    if ($r3->name eq "Fault") {
-	print "result: ", $r3->name, "\n";
-	print Dumper ($r3);
-	print "Error adding $alias_name\@, skipping.\n";
-	exit;
-    }
-
     my $z_id;
-    for my $child (@{$r3->children()}) {
-	for my $attr (@{$child->children}) {
-	    $z_id = $attr->content()
-		if ((values %{$attr->attrs()})[0] eq "zimbraId");
-	}
+    if (!exists $opts->{n}) {
+        my $r3 = $SOAP->invoke($url, $d3->root(), $context);
+
+        if ($r3->name eq "Fault") {
+            print "result: ", $r3->name, "\n";
+            print Dumper ($r3);
+            print "Error adding $alias_name\@, skipping.\n";
+            exit;
+        }
+
+        for my $child (@{$r3->children()}) {
+            for my $attr (@{$child->children}) {
+                $z_id = $attr->content()
+                    if ((values %{$attr->attrs()})[0] eq "zimbraId");
+            }
+        }
+
+        # print "adding members to $alias_name at ", `date`;
     }
-
-    # print "adding members to $alias_name at ", `date`;
-
+    
     my $d4 = new XmlDoc;
 
-    $d4->start ('AddDistributionListMemberRequest', $MAILNS);
-    $d4->add ('id', $MAILNS, undef, $z_id);
+    if (!exists $opts->{n}) {
+        $d4->start ('AddDistributionListMemberRequest', $MAILNS);
+        $d4->add ('id', $MAILNS, undef, $z_id);
+    }
 
     my $member_count = 0;
     for (@l) {
-	next if ($_ =~ /archive$/);
-	$_ .= "\@" . $domain
-	    if ($_ !~ /\@/);
-	print "adding $_\n"
-	    if (exists $opts->{d});
-        
-	$d4->add ('dlm', $MAILNS, undef, $_);
-	$member_count++;
+        next if ($_ =~ /archive$/);
+        $_ .= "\@" . $domain
+            if ($_ !~ /\@/);
+        print "adding $_\n"
+            if (exists $opts->{d});
+        $d4->add ('dlm', $MAILNS, undef, $_)
+            if (!exists $opts->{n});
+        $member_count++;
     }
-    $d4->end;
 
-    my $r4 = $SOAP->invoke($url, $d4->root(), $context);
+    if (!exists $opts->{n}) {
+        $d4->end;
 
-    if ($r4->name eq "Fault") {
-	print "result: ", $r4->name, "\n";
-	print Dumper ($r4);
-	print "Error adding distribution list members.  This probably means the alias was left empty\n";
-	exit;
+        my $r4 = $SOAP->invoke($url, $d4->root(), $context);
+
+        if ($r4->name eq "Fault") {
+            print "result: ", $r4->name, "\n";
+            print Dumper ($r4);
+            print "Error adding distribution list members.  This probably means the alias was left empty\n";
+            exit;
+        }
     }
 
     print "\tfinished adding $member_count members to $alias_name\n";
@@ -473,24 +494,27 @@ sub create_and_populate_alias($@) {
 sub rename_alias($$) {
     my ($my_alias_name_tmp, $my_alias_name) = @_;
 
-    my $d_z_id = get_alias_z_id($my_alias_name_tmp);
-    if (defined $d_z_id) {
-	my $my_d = new XmlDoc;
-	$my_d->start('RenameDistributionListRequest', $MAILNS);
-	$my_d->add('id', $MAILNS, undef, "$d_z_id");
-	$my_d->add('newName', $MAILNS, undef, "$my_alias_name\@". $domain);
-	$my_d->end;
-
-	my $my_r = $SOAP->invoke($url, $my_d->root(), $context);
-
-	if ($my_r->name eq "Fault") {
-	    print "result: ", $my_r->name, "\n";
-	    print Dumper ($my_r);
-	    print "Error renaming $my_alias_name_tmp $my_alias_name, skipping.\n";
-	    exit;
-	}
-    } else {
-	print "\talias $alias_name_tmp doesn't exist, skipping.\n";
+    if (!exists $opts->{n}) {
+        my $d_z_id = get_alias_z_id($my_alias_name_tmp);
+        if (defined $d_z_id) {
+            my $my_d = new XmlDoc;
+            $my_d->start('RenameDistributionListRequest', $MAILNS);
+            $my_d->add('id', $MAILNS, undef, "$d_z_id");
+            $my_d->add('newName', $MAILNS, undef, "$my_alias_name\@". $domain);
+            $my_d->end;
+            
+            my $my_r = $SOAP->invoke($url, $my_d->root(), $context);
+            
+            if ($my_r->name eq "Fault") {
+                print "result: ", $my_r->name, "\n";
+                print Dumper ($my_r);
+                print "Error renaming $my_alias_name_tmp $my_alias_name, skipping.\n";
+                exit;
+            }
+            
+        } else {
+            print "\talias $alias_name_tmp doesn't exist, skipping.\n";
+        }
     }
 }
 
