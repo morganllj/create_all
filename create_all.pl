@@ -1,7 +1,7 @@
 #!/usr/bin/perl -w
 #
 # Author: Morgan Jones (morgan@morganjones.org)
-# Id:     $Id: ldap2zimbra.pl 83 2008-05-15 14:28:32Z morgan $
+# Id:     $Id$
 #
 
 
@@ -54,19 +54,19 @@ getopts('z:p:l:b:D:w:m:a:dn', \%$opts);
 ################
 # Zimbra SOAP
 ## Any of your stores
-my $zimbra_svr =    $opts->{z} || "dmail02.domain.org";
+my $zimbra_svr =    $opts->{z} || "dmail01.domain.org";
 ## admin user pass
 my $zimbra_pass =   $opts->{p} || "pass";
 ## domain within which you want to create the alias
-my $domain =        $opts->{m} || "dmail02.domain.org";
+my $domain =        $opts->{m} || "dev.domain.org";
 my $alias_name =    $opts->{a} || "all-34Thg90";
 
 my $alias_name_tmp = $alias_name . "_tmp";
 
 ################
 # Zimbra LDAP
-my $z_ldap_host =   $opts->{l} || "dmail02.domain.org";
-my $z_ldap_base =   $opts->{b} || "dc=dmail02,dc=domain,dc=org";
+my $z_ldap_host =   $opts->{l} || "dmldap01.domain.org";
+my $z_ldap_base =   $opts->{b} || "dc=dev,dc=domain,dc=org";
 my $z_ldap_binddn = $opts->{D} || "uid=zimbra,cn=admins,cn=zimbra";
 my $z_ldap_pass =   $opts->{w} || "pass";
 
@@ -113,6 +113,7 @@ print "\nstarting at ", `date`;
 # authenticate to Zimbra admin url
 my $d = new XmlDoc;
 $d->start('AuthRequest', $ACCTNS);
+#$d->add('name', undef, undef, "admin"."@".$domain);
 $d->add('name', undef, undef, "admin");
 $d->add('password', undef, undef, $zimbra_pass);
 $d->end();
@@ -219,12 +220,12 @@ sub parse_and_return_list($) {
 
 
 	for my $attr (@{$child->children}) {
-  	    if ((values %{$attr->attrs()})[0] eq "mail") {
+#  	    if ((values %{$attr->attrs()})[0] eq "mail") {
+#            print "values: ", (values %{$attr->attrs()})[0], "\n";
+  	    if ((values %{$attr->attrs()})[0] =~ /^zimbramaildeliveryaddress$/i) {
   		$mail = $attr->content();
+                print "adding $mail..\n";
  	    }
-#   	    if ((values %{$attr->attrs()})[0] eq "zimbraId") {
-#   		$z_id = $attr->content();
-#   	    }
  	}
 	push @l, $mail
             unless (!defined $mail);
