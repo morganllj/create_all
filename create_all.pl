@@ -207,28 +207,20 @@ print "finished at ", `date`;
 
 #######
 sub parse_and_return_list($) {
-
     my $r = shift;
-
     my @l;
 
-
-
     for my $child (@{$r->children()}) {
-	my ($mail, $z_id);
-
-
-
 	for my $attr (@{$child->children}) {
-#  	    if ((values %{$attr->attrs()})[0] eq "mail") {
-#            print "values: ", (values %{$attr->attrs()})[0], "\n";
-  	    if ((values %{$attr->attrs()})[0] =~ /^zimbramaildeliveryaddress$/i) {
-  		$mail = $attr->content();
-                print "adding $mail..\n";
- 	    }
+            if ((values %{$attr->attrs()})[0] =~ /^zimbramaildeliveryaddress$/i) {  
+                my $c = $attr->content();
+                if ($c =~ /^_/) {
+                    print "\tskipping special address ", $c, "\n";
+                    next;
+                }
+                push @l, $c;
+            }
  	}
-	push @l, $mail
-            unless (!defined $mail);
     }
 
     return @l
