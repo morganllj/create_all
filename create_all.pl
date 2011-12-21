@@ -59,7 +59,7 @@ my $zimbra_svr =    $opts->{z} || "dmail01.domain.org";
 my $zimbra_pass =   $opts->{p} || "pass";
 ## domain within which you want to create the alias
 my $domain =        $opts->{m} || "dev.domain.org";
-my $alias_name =    $opts->{a} || "all-34Thg90";
+my $alias_name =    $opts->{a} || "alias_name";
 
 my $alias_name_tmp = $alias_name . "_tmp";
 
@@ -212,13 +212,13 @@ sub parse_and_return_list($) {
 
     for my $child (@{$r->children()}) {
 	for my $attr (@{$child->children}) {
-            if ((values %{$attr->attrs()})[0] =~ /^zimbramaildeliveryaddress$/i) {  
-                my $c = $attr->content();
-                if ($c =~ /^_/) {
-                    print "\tskipping special address ", $c, "\n";
+            if ((values %{$attr->attrs()})[0] =~ /^zimbramaildeliveryaddress$/i) {            
+                if ($attr->content() =~ /^_/) {
+                    print "\tskipping special address ", $attr->content(), "\n";
                     next;
                 }
-                push @l, $c;
+                
+                push @l, $attr->content()
             }
  	}
     }
