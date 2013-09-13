@@ -1,0 +1,23 @@
+
+create_all.pl
+Morgan Jones (morgan@morganjones.org)
+
+Uses Zimbra's perl SOAP api to get a list of users via an arbitrary
+query and create a distribution list.  Initially conceived to generate a daily 'all' alias on an automatically provisioned system as a manually populated distribution list would be stale almost instantly.
+
+Minimizes time the alias is unavailable by creating a temporarly alias
+and then renaming it to the name of the production alias.
+
+- accounts can be omitted by CoS
+- an arbitrary search is used to define the contents of the
+  distribution list
+- allows a list of exceptions that will be added to the list
+- intelligent about handling account.TOO_MANY_SEARCH_RESULTS error
+  that is common if your search returns a large subset
+
+TODO:
+- there are a number of sub prototypes at the top that I believe are
+  from a different script.  They should be removed
+- break configuration into a separate file
+- rename script: it's not just for an 'all' dist list but a general
+  dist list creation tool.
