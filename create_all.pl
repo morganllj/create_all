@@ -88,6 +88,9 @@ my $search_fil = "(zimbraaccountstatus=active)";
 $search_fil = "(&(!(zimbracosid=$omit_cos_id))$search_fil)"
     if (defined ($omit_cos_id));
 
+# addresses that will be added to the all list
+my @addresses_to_add = qw/all-exceptions@philasd.org/;
+
 
 
 # If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
@@ -464,6 +467,16 @@ sub create_and_populate_alias($@) {
         $d4->add ('dlm', $MAILNS, undef, $_)
             if (!exists $opts->{n});
         $member_count++;
+    }
+
+    if (@addresses_to_add) {
+	for (@addresses_to_add) {
+	    print "adding $_\n"
+	      if (exists $opts->{d});
+	    $d4->add ('dlm', $MAILNS, undef, $_)
+	      if (!exists $opts->{n});
+	    $member_count++;
+	}
     }
 
     if (!exists $opts->{n}) {
