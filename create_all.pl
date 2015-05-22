@@ -65,7 +65,7 @@ my $alias_name_tmp = $alias_name . "_tmp";
 
 ################
 # Zimbra LDAP
-my $z_ldap_host =   $opts->{l} || "dmldap01.domain.org";
+my $z_ldap_host =   $opts->{l} || "dmldap03.domain.org";
 my $z_ldap_base =   $opts->{b} || "dc=dev,dc=domain,dc=org";
 my $z_ldap_binddn = $opts->{D} || "uid=zimbra,cn=admins,cn=zimbra";
 my $z_ldap_pass =   $opts->{w} || "pass";
@@ -76,20 +76,18 @@ exists ($opts->{d}) && print "-d used, debugging will be printed\n";
 my $omit_cos_id;
 # if this is defined create_all will omit users in this cos.
 # prod
-$omit_cos_id = "f1b022c3-82a0-44c5-97e6-406c66e9af66";
+# $omit_cos_id = "f1b022c3-82a0-44c5-97e6-406c66e9af66";
 # dev
-# $omit_cos_id = "28a287bd-199b-4ff0-82cf-ca0578756035"; 
-#
-# my $search_fil = "(!(zimbracosid=$omit_cos_id))";
+$omit_cos_id = "28a287bd-199b-4ff0-82cf-ca0578756035"; 
 
-#$search_fil = "(&(!(zimbracosid=$omit_cos_id))(zimbraaccountstatus=active))";
 my $search_fil = "(zimbraaccountstatus=active)";
+#my $search_fil = "(&(zimbraaccountstatus=active)(uid=m*))";
 
 $search_fil = "(&(!(zimbracosid=$omit_cos_id))$search_fil)"
     if (defined ($omit_cos_id));
 
 # addresses that will be added to the all list
-my @addresses_to_add = qw/all-exceptions@philasd.org/;
+my @addresses_to_add = qw/all-exceptions@domain.org/;
 
 
 
@@ -116,7 +114,6 @@ print "\nstarting at ", `date`;
 # authenticate to Zimbra admin url
 my $d = new XmlDoc;
 $d->start('AuthRequest', $ACCTNS);
-#$d->add('name', undef, undef, "admin"."@".$domain);
 $d->add('name', undef, undef, "admin");
 $d->add('password', undef, undef, $zimbra_pass);
 $d->end();
@@ -134,7 +131,7 @@ my $context = $SOAP->zimbraContext($authToken, undef);
 
 
 # Get list of users from Zimbra
-print "Building user list..\n";
+print "Building user list...\n";
 
 my $d2 = new XmlDoc;
 
@@ -144,6 +141,8 @@ $d2->start('SearchDirectoryRequest', $MAILNS,
     ); 
 
 if (defined $search_fil) {
+    print "\tfilter: $search_fil\n"
+      if (exists $opts->{d});
     $d2->add('query', $MAILNS, { "types" => "accounts" }, $search_fil);
 } else {
     $d2->add('query', $MAILNS, { "types" => "accounts" });
@@ -247,10 +246,9 @@ sub get_list_in_range($$$) {
     for my $l (${beg}..${end}, "_", "-") {
 	my $fil = '(uid=';
 	$fil .= $prfx if (defined $prfx);
-	# $fil .= "${l}\*";
 	$fil .= "${l}\*)";
 
-	$fil = "(&(" . $fil . $search_fil . "))"
+	$fil = "(&" . $fil . $search_fil . ")"
 	    if (defined ($search_fil));
 
 	print "searching $fil\n"
@@ -282,7 +280,7 @@ sub get_list_in_range($$$) {
 		
 		increment_del_recurse();
 		if (get_del_recurse() > $max_recurse) {
-		    print "\tmax recursion ($max_recurse) hit, backing off.. \n";
+		    print "\tmax recursion ($max_recurse) hit, backing off... \n";
 		    print "\tThis may mean a truncated user list.\n";
 		    decrement_del_recurse();
 		    return 1; # return failure so caller knows to return
@@ -347,7 +345,7 @@ sub get_fault_reason {
 	}
     }
 
-    return "<no reason found..>";
+    return "<no reason found>";
 }
 
 
@@ -377,9 +375,7 @@ sub find_and_del_alias($) {
                 exit;
             }
         }
-    }# else {
-#	print "\talias $alias_name not found..\n";
-#    }
+    }
 }
 
 
