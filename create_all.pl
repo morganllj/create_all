@@ -200,8 +200,8 @@ find_and_del_alias($alias_name);
 print "renaming $alias_name_tmp to $alias_name at ", `date`;
 rename_alias($alias_name_tmp, $alias_name);
 
-# print "looking for and deleting $alias_name_tmp\n";
-# find_and_del_alias($alias_name_tmp);
+print "looking for and deleting $alias_name_tmp\n";
+find_and_del_alias($alias_name_tmp);
 
 print "finished at ", `date`;
 
@@ -211,6 +211,7 @@ print "finished at ", `date`;
 sub parse_and_return_list($) {
     my $r = shift;
     my @l;
+    my %l;  # used to make sure no duplicates end up in @l
 
     for my $child (@{$r->children()}) {
 	for my $attr (@{$child->children}) {
@@ -220,7 +221,10 @@ sub parse_and_return_list($) {
                     next;
                 }
                 
-                push @l, $attr->content()
+		if (!exists $l{lc $attr->content()}) {
+		    $l{lc $attr->content()} = 1;
+		    push @l, $attr->content();
+		}
             }
  	}
     }
@@ -235,11 +239,6 @@ sub parse_and_return_list($) {
 # a, aa, aaa, aab, aac ... zzz
 sub get_list_in_range($$$) {
     my ($prfx, $beg, $end) = @_;
-
-#     print "deleting ";
-#     print "${beg}..${end} ";
-#     print "w/ prfx $prfx " if (defined $prfx);
-#     print "\n";
 
     my @l;
 
