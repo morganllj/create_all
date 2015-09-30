@@ -1,0 +1,26 @@
+%config = (
+
+"zimbra_svr" => "dmail01.domain.org",
+"zimbra_pass" => "pass",
+"domain" => "dev.domain.org",
+"alias_name" => "alias",
+
+#"search_filter" => "(&(mail=m*)(objectClass=orgZimbraPerson)(orgaccountactive=TRUE)(|(objectClass=orgEmployee)(objectClass=orgAssociate)))",
+"search_filter" => "(&(objectClass=orgZimbraPerson)(orgaccountactive=TRUE)(|(objectClass=orgEmployee)(objectClass=orgAssociate)))",
+
+"ldap_host" =>  "ldap01-mgmt.domain.net",
+"ldap_base" => "dc=domain,dc=org",
+"ldap_binddn" => "cn=directory manager",
+"ldap_pass" => "pass",
+
+"addresses_to_add" => [qw/all-exceptions@domain.org/],
+
+# If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
+# search for a subset.  If the recursion somehow goes awry or there
+# are just too many entries we need to have a limit of some sort.
+"max_recurse" => 15,
+
+);
+
+1;
+
