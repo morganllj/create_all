@@ -5,12 +5,11 @@
 "domain" => "dev.domain.org",
 "alias_name" => "alias",
 
-#"search_filter" => "(&(mail=m*)(objectClass=orgZimbraPerson)(orgaccountactive=TRUE)(|(objectClass=orgEmployee)(objectClass=orgAssociate)))",
 "search_filter" => "(&(objectClass=orgZimbraPerson)(orgaccountactive=TRUE)(|(objectClass=orgEmployee)(objectClass=orgAssociate)))",
 
 "ldap_host" =>  "ldap01-mgmt.domain.net",
 "ldap_base" => "dc=domain,dc=org",
-"ldap_binddn" => "cn=directory manager",
+"ldap_binddn" => "cn=account",
 "ldap_pass" => "pass",
 
 "addresses_to_add" => [qw/all-exceptions@domain.org/],

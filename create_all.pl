@@ -57,16 +57,6 @@ our $test;
 $opts->{c} || print_usage();
 require $opts->{c};
 
-################
-# Zimbra SOAP
-## Any of your stores
-# my $zimbra_svr =    $opts->{z} || "dmail01.domain.org";
-# ## admin user pass
-# my $zimbra_pass =   $opts->{p} || "pass";
-# ## domain within which you want to create the alias
-# my $domain =        $opts->{m} || "dev.domain.org";
-# my $alias_name =    $opts->{a} || "alias_name";
-
 my $zimbra_svr =  $config{zimbra_svr};
 my $zimbra_pass = $config{zimbra_pass};
 my $domain =      $config{domain};
@@ -82,30 +72,9 @@ my $ldap_pass =   $config{ldap_pass};
 exists ($opts->{n}) && print "\n-n used, no changes will be made\n";
 exists ($opts->{d}) && print "-d used, debugging will be printed\n";
 
-#my $omit_cos_id;
-# if this is defined create_all will omit users in this cos.
-# prod
-# $omit_cos_id = "f1b022c3-82a0-44c5-97e6-406c66e9af66";
-# dev
-#$omit_cos_id = "28a287bd-199b-4ff0-82cf-ca0578756035"; 
-
-#my $search_fil = "(zimbraaccountstatus=active)";
-#my $search_fil = "(&(zimbraaccountstatus=active)(uid=m*))";
 my $search_fil = $config{search_filter};
 
-# $search_fil = "(&(!(zimbracosid=$omit_cos_id))$search_fil)"
-#     if (defined ($omit_cos_id));
-
-# addresses that will be added to the all list
-#my @addresses_to_add = qw/all-exceptions@domain.org/;
 my @addresses_to_add = @{$config{addresses_to_add}};
-
-
-
-# If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
-# search for a subset.  If the recursion somehow goes awry or there
-# are just too many entries we need to have a limit of some sort.
-# my $max_recurse = 15;
 
 my $ldap = Net::LDAP->new($ldap_host) or die "$@";
 $ldap->bind(dn=>$ldap_binddn, password=>$ldap_pass);
@@ -118,8 +87,6 @@ my $MAILNS = "urn:zimbraAdmin";
 my $SOAP = $Soap::Soap12;
 
 print "\nstarting at ", `date`;
-### keep track of accounts in ldap and added.
-### search out every account in ldap.
 
 # authenticate to Zimbra admin url
 my $d = new XmlDoc;
@@ -144,69 +111,10 @@ $sr->code && die "problem searching ", $config{"ldap_host"};
 
 my $result_ref = $sr->as_struct;
 
-
-
 my @l;
-
 for my $dn (sort keys %$result_ref) {
-#    print $result_ref->{$dn}->{mail}->[0], "\n";
     push @l, $result_ref->{$dn}->{mail}->[0]
 }
-
-# # Get list of users from Zimbra
-# print "Building user list...\n";
-
-# my $d2 = new XmlDoc;
-
-# $d2->start('SearchDirectoryRequest', $MAILNS,
-# 	  {'sortBy' => "uid",
-# 	   'types'  => "accounts"}
-#     ); 
-
-# if (defined $search_fil) {
-#     print "\tfilter: $search_fil\n";
-# #      if (exists $opts->{d});
-#     $d2->add('query', $MAILNS, { "types" => "accounts" }, $search_fil);
-# } else {
-#     $d2->add('query', $MAILNS, { "types" => "accounts" });
-# }
-
-# $d2->end();
-
-# #     # TODO: skip special users?
-# #     if ($usr =~ /$zimbra_special/) {
-# # 	print "skipping special user $usr\n"
-# # 	    if (exists $opts->{d});
-# # 	next;
-# #     }
-
-# my $r = $SOAP->invoke($url, $d2->root(), $context);
-
-# my @l;
-# if ($r->name eq "Fault") {
-
-#     my $rsn = get_fault_reason($r);
-
-#     # break down the search by alpha/numeric if reason is 
-#     #    account.TOO_MANY_SEARCH_RESULTS
-#     if (defined $rsn && $rsn eq "account.TOO_MANY_SEARCH_RESULTS") {
-# 	if (exists $opts->{d}) {
-# 	    print "\tfault due to $rsn\n";
-# 	    print "\trecursing deeper to return fewer results.\n";
-# 	}
-
-# 	@l = get_list_in_range(undef, "a", "z");
-#     } else {
-#         print "unhandled reason: $rsn, exiting.\n";
-#         exit;
-#     }
-# } else {
-#     @l = parse_and_return_list($r);
-# }
-
-
-
-
 
 # search out and delete the tmp alias if it exists.  In most cases it
 # won't exist but if, say this script was interrupted it would be out
@@ -227,129 +135,6 @@ rename_alias($alias_name_tmp, $alias_name);
 # find_and_del_alias($alias_name_tmp);
 
 print "finished at ", `date`;
-
-
-
-#######
-# sub parse_and_return_list($) {
-#     my $r = shift;
-#     my @l;
-#     my %l;  # used to make sure no duplicates end up in @l
-
-#     for my $child (@{$r->children()}) {
-# 	for my $attr (@{$child->children}) {
-#             if ((values %{$attr->attrs()})[0] =~ /^zimbramaildeliveryaddress$/i) {            
-#                 if ($attr->content() =~ /^_/) {
-#                     print "\tskipping special address ", $attr->content(), "\n";
-#                     next;
-#                 }
-                
-# 		if (!exists $l{lc $attr->content()}) {
-# 		    $l{lc $attr->content()} = 1;
-# 		    push @l, $attr->content();
-# 		}
-#             }
-#  	}
-#     }
-
-#     return @l
-# }
-
-
-#######
-# a, b, c, d, .. z
-# a, aa, ab, ac .. az, ba, bb .. zz
-# a, aa, aaa, aab, aac ... zzz
-# sub get_list_in_range($$$) {
-#     my ($prfx, $beg, $end) = @_;
-
-#     my @l;
-
-#     for my $l (${beg}..${end}, "_", "-") {
-# 	my $fil = '(uid=';
-# 	$fil .= $prfx if (defined $prfx);
-# 	$fil .= "${l}\*)";
-
-# 	$fil = "(&" . $fil . $search_fil . ")"
-# 	    if (defined ($search_fil));
-
-# 	print "searching $fil\n"
-# 	    if ( exists $opts->{d});
-
-# 	my $d = new XmlDoc;
-# 	$d->start('SearchDirectoryRequest', $MAILNS);
-# 	$d->add('query', $MAILNS, { "types" => "accounts" }, $fil);
-# 	$d->end;
-	
-# 	my $r = $SOAP->invoke($url, $d->root(), $context);
-# # debugging:
-# # 	if ($r->name eq "Fault" || !defined $prfx || 
-# #	    scalar (split //, $prfx) < 6 ) {
-#  	if ($r->name eq "Fault") {
-	   
-# 	    my $rsn = get_fault_reason ($r);
-
-# 	    # break down the search by alpha/numeric if reason is 
-# 	    #    account.TOO_MANY_SEARCH_RESULTS
-# 	    if (defined $rsn && $rsn eq "account.TOO_MANY_SEARCH_RESULTS") {
-# 		if (exists $opts->{d}) {
-# 		    print "\tfault due to $rsn\n";
-# 		    print "\trecursing deeper to return fewer results.\n";
-# 		}
-		
-# 		my $prfx2pass = $l;
-# 		$prfx2pass = $prfx . $prfx2pass if defined $prfx;
-		
-# 		increment_del_recurse();
-# 		if (get_del_recurse() > $max_recurse) {
-# 		    print "\tmax recursion ($max_recurse) hit, backing off... \n";
-# 		    print "\tThis may mean a truncated user list.\n";
-# 		    decrement_del_recurse();
-# 		    return 1; # return failure so caller knows to return
-# 		              # and not keep trying to recurse to this
-# 		              # level
-
-# 		}
-
-# # 		push @l, get_list_in_range ($prfx2pass, $beg, $end);
-# # 		decrement_del_recurse();
-
-# # 		# my @my_l = get_list_in_range ($prfx2pass, $beg, $end);
-# # 		# decrement_del_recurse();
-# # 		# return @my_l if (@my_l);  # should cause us to drop back one level
-# # 			      # in recursion
-
-# # 	    } else {
-# # 		print "unhandled reason: $rsn, exiting.\n";
-# # 		exit;
-# # 	    }
-
-# #  	} else {
-# # 	    push @l, parse_and_return_list($r);
-# #         }
-# #     }
-
-# #     return @l;
-# # }
-
-
-# # static variable to limit recursion depth
-# BEGIN {
-#     my $del_recurse_counter = 0;
-
-#     sub increment_del_recurse() {
-# 	$del_recurse_counter++;
-#     }
-
-#     sub decrement_del_recurse() {
-# 	$del_recurse_counter--;
-#     }
-    
-#     sub get_del_recurse() {
-# 	return $del_recurse_counter;
-#     }
-# }
-
 
 
 sub get_fault_reason {
@@ -406,27 +191,10 @@ sub get_alias_z_id($) {
     # return undef if the alias doesn't exist
     my $d_z_id = undef;
 
-    # # search out the zimbraId of the production alias
-    # my $fil = "(&(objectclass=zimbraDistributionList)(uid=$alias_name))";
-    # print "searching ldap for dist list with $fil\n"
-    # 	if (exists $opts->{d});
-
-    # my $sr = $ldap->search(base=>$z_ldap_base, filter=>$fil);
-    # $sr->code && die $sr->error;
-
-    # my @mbrs;
-
-    # for my $l_dist ($sr->entries) {
-    # 	$d_z_id = $l_dist->get_value("zimbraId");
-    # }
-
-
     my $d6 = new XmlDoc;
 
     $d6->start('GetDistributionListRequest', $MAILNS);
-#    $d->add('account', $MAILNS, { "by" => "name" }, $u);
     $d6->add('dl', $MAILNS, {"by" => "name"}, 
-#	     $config{alias_name} . "@". $config{domain});
 	     $alias_name . "@". $config{domain});
     $d6->end();
 
@@ -452,20 +220,9 @@ sub get_alias_z_id($) {
 }
 
 
-
-
-
-
-
-
-
-
 sub create_and_populate_alias($@) {
     my $alias_name = shift;
     my @l = @_;
-
-    # print "creating list $alias_name with id $d_z_id at ", `date`;
-    # print "creating list $alias_name at ", `date`;
 
     my $d3 = new XmlDoc;
     $d3->start('CreateDistributionListRequest', $MAILNS);
@@ -491,8 +248,6 @@ sub create_and_populate_alias($@) {
                     if ((values %{$attr->attrs()})[0] eq "zimbraId");
             }
         }
-
-        # print "adding members to $alias_name at ", `date`;
     }
     
     my $d4 = new XmlDoc;
