@@ -47,6 +47,7 @@ sub find_and_del_alias($);
 sub create_and_populate_alias($@);
 sub get_alias_z_id($);
 sub rename_alias($$);
+sub get_exclusions($);
 
 my $opts;
 getopts('z:p:l:b:D:w:m:a:dnf:c:', \%$opts);
@@ -106,14 +107,21 @@ my $context = $SOAP->zimbraContext($authToken, undef);
 print "searching $ldap_host...\n";
 my $sr = $ldap->search(base => $config{ldap_base}, filter => $config{search_filter}, 
 		       attrs => "mail");
-
 $sr->code && die "problem searching ", $config{"ldap_host"};
 
 my $result_ref = $sr->as_struct;
 
+my @exclusions = get_exclusions($ldap);
+
 my @l;
 for my $dn (sort keys %$result_ref) {
-    push @l, $result_ref->{$dn}->{mail}->[0]
+
+    if  (grep /$result_ref->{$dn}->{mail}->[0]/i, @exclusions) {
+	print "\tskipping $result_ref->{$dn}->{mail}->[0]\n";
+    } else {
+	push @l, $result_ref->{$dn}->{mail}->[0]
+    }
+
 }
 
 # search out and delete the tmp alias if it exists.  In most cases it
@@ -163,7 +171,7 @@ sub find_and_del_alias($) {
     my $d_z_id = get_alias_z_id($alias_name);
     if (defined $d_z_id) {
 	# list exists, delete it
-	print "\tdeleting list $alias_name\n";
+	print "\tdeleting list $alias_name, id $d_z_id\n";
 
 	my $d5 = new XmlDoc;
 
@@ -325,9 +333,33 @@ sub rename_alias($$) {
 }
 
 
+sub get_exclusions($) {
+    my $ldap = shift;
+
+    my $r = $ldap->search(base => $config{ldap_group_to_exclude}, 
+			  filter => "objectclass=*");
+    $r->code && die "problem searching for group ", $config{ldap_group_to_exclude};
+
+    my $ref = $r->as_struct;
+    
+    my @exclusions;
+
+    for my $um (@{$ref->{(keys %$ref)[0]}->{uniquemember}}) {
+	my $r2 = $ldap->search(base => $um, filter => "objectclass=*");
+	$r2->code && die "problem searching for user ", $um;
+	
+	my $ref2 = $r2->as_struct;
+	push @exclusions, (@{$ref2->{(keys %$ref2)[0]}->{mail}})[0]
+    }
+
+    return @exclusions;
+}
+
+
 
 sub print_usage() {
     print "usage: $0 [-n] -c <config file>\n";
+    exit;
 }				 
 
 
