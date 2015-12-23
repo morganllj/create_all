@@ -14,6 +14,8 @@
 
 "addresses_to_add" => [qw/all-exceptions@domain.org/],
 
+"ldap_group_to_exclude" => "cn=allaliasexcludes,ou=groups,dc=domain,dc=org",
+
 # If we get an account.TOO_MANY_SEARCH_RESULTS Fault we recurse and
 # search for a subset.  If the recursion somehow goes awry or there
 # are just too many entries we need to have a limit of some sort.
