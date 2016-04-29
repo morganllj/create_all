@@ -295,7 +295,7 @@ sub create_and_populate_alias($@) {
         if ($r4->name eq "Fault") {
             print "result: ", $r4->name, "\n";
             print Dumper ($r4);
-            print "Error adding distribution list members.  This probably means the alias was left empty\n";
+            print "Error adding distribution list members.  This may mean the alias was left empty\n";
             exit;
         }
     }
