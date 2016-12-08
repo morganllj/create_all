@@ -4,7 +4,7 @@ Morgan Jones (morgan@morganjones.org)
 
 Get a list of users from an ldap directory and insert them into a distribution list in Zimbra.  Conceived to generate a daily 'all' alias on an automatically provisioned system as a manually populated distribution list would be stale almost instantly.
 
-Minimizes time the alias is unavailable by creating a temporarly alias
+Minimizes time the alias is unavailable by creating a temporary alias
 and then renaming it to the name of the production alias.
 
 - an arbitrary search is used to define the contents of the
@@ -16,3 +16,4 @@ TODO:
   from a different script.  They should be removed
 - rename script?  It's not just for an 'all' dist list but a general
   dist list creation tool.
+
